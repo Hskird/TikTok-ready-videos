@@ -20,9 +20,9 @@ kids_story:
     rate: 0
   animation:
     fps: 30
-    fade_duration_seconds: 0.35
-    zoom_speed: 0.0018
-    max_zoom: 1.16
+    fade_duration_seconds: 0.45
+    zoom_speed: 0.0028
+    max_zoom: 1.28
 
 captions:
   template: "{title} | {creator}"
