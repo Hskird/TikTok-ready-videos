@@ -1,0 +1,57 @@
+database:
+  path: ./data/review.db
+
+reports:
+  html_path: ./reports/review_dashboard.html
+  csv_path: ./reports/review_dashboard.csv
+
+paths:
+  download_dir: ./data/downloads
+  processed_dir: ./data/processed
+  log_path: ./logs/tool.log
+
+captions:
+  template: "{title} | {creator} | Source: {source_name}"
+  default_hashtags:
+    - legalcontent
+    - rightschecked
+    - tiktokready
+
+processing:
+  ffmpeg_path: ffmpeg
+  max_duration_seconds: 30
+  drawtext_font_path: ""
+
+schedule:
+  timezone: Europe/Paris
+  daily_post_limit: 2
+  posting_times:
+    - "09:00"
+    - "18:00"
+
+uploader:
+  name: mock
+  tiktok_client_id: ${TIKTOK_CLIENT_ID}
+  tiktok_client_secret: ${TIKTOK_CLIENT_SECRET}
+
+sources:
+  wikimedia_commons:
+    enabled: true
+    category: cc
+  internet_archive:
+    enabled: true
+    category: public_domain
+  pexels:
+    enabled: false
+    category: licensed_stock
+  pixabay:
+    enabled: false
+    category: licensed_stock
+  local_owned:
+    enabled: true
+    category: owned
+    folder: ./owned_media
+  local_ai:
+    enabled: true
+    category: ai_owned
+    folder: ./ai_generated_videos
