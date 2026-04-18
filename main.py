@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import re
@@ -16,8 +17,9 @@ from media_processor import MediaProcessor
 from rights_validator import RightsValidator
 from scheduler import Scheduler
 from search_sources import discover_assets
-from storage import Storage, write_csv_report, write_html_report
-from uploader import build_uploader
+from storage import AssetRecord, Storage, write_csv_report, write_html_report
+from uploader import UploadRequest, build_uploader
+from kids_story_generator import KidsStoryGenerator
 
 
 LOGGER = logging.getLogger(__name__)
@@ -33,9 +35,7 @@ def main() -> int:
     try:
         validator = RightsValidator(config)
         media_processor = MediaProcessor(config, storage)
-        uploader = build_uploader(config)
-        scheduler = Scheduler(config, storage, media_processor, uploader)
-        return args.handler(args, config, storage, validator, media_processor, scheduler)
+        return args.handler(args, config, storage, validator, media_processor)
     finally:
         storage.close()
 
@@ -87,6 +87,21 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--dry-run", action="store_true")
     run_parser.set_defaults(handler=handle_run_scheduler)
 
+    story_parser = subparsers.add_parser("generate-kids-story", help="Create a short vertical kids story video package.")
+    story_parser.add_argument("--title", default="Luna's Little Adventure")
+    story_parser.add_argument("--theme", default="friendship")
+    story_parser.add_argument("--character", default="Luna the little fox")
+    story_parser.add_argument("--output-dir", default="./data/kids_story")
+    story_parser.add_argument("--scene-dir", default="", help="Folder containing scene_01.png ... scene_04.png")
+    story_parser.add_argument("--voice", default="", help="Optional Windows voice name for narration.")
+    story_parser.add_argument("--rate", type=int, default=0, help="Windows narrator rate from about -10 to 10.")
+    story_parser.add_argument("--create-placeholders", action="store_true", help="Create simple fallback images if AI scene art is not ready yet.")
+    story_parser.add_argument("--auto-post", action="store_true", help="Post the generated story to configured platforms using official APIs.")
+    story_parser.add_argument("--dry-run-post", action="store_true", help="Simulate posting without calling platform APIs.")
+    story_parser.add_argument("--description", default="", help="Optional override for the social description.")
+    story_parser.add_argument("--hashtags", default="", help="Optional hashtags string like '#kidsstory #shorts'.")
+    story_parser.set_defaults(handler=handle_generate_kids_story)
+
     return parser
 
 
@@ -96,9 +111,8 @@ def handle_search(
     storage: Storage,
     validator: RightsValidator,
     media_processor: MediaProcessor,
-    scheduler: Scheduler,
 ) -> int:
-    del media_processor, scheduler
+    del media_processor
     assets = discover_assets(
         config=config,
         storage=storage,
@@ -116,10 +130,9 @@ def handle_review_report(
     storage: Storage,
     validator: RightsValidator,
     media_processor: MediaProcessor,
-    scheduler: Scheduler,
 ) -> int:
-    del validator, media_processor, scheduler
-    rows = storage.export_review_rows()
+    del validator, media_processor
+    rows = filter_excluded_sources(storage.export_review_rows(), config)
     html_path = args.html or config["reports"]["html_path"]
     csv_path = args.csv or config["reports"]["csv_path"]
     html_output = write_html_report(rows, html_path)
@@ -135,11 +148,13 @@ def handle_list_assets(
     storage: Storage,
     validator: RightsValidator,
     media_processor: MediaProcessor,
-    scheduler: Scheduler,
 ) -> int:
-    del config, validator, media_processor, scheduler
+    del validator, media_processor
     assets = storage.list_assets(rights_status=args.rights_status or None)
+    excluded_sources = excluded_source_names(config)
     for asset in assets:
+        if asset.source_name.lower() in excluded_sources:
+            continue
         print(
             f"[{asset.asset_id}] {asset.title} | {asset.rights_status} | "
             f"approved={asset.manual_approved} | scheduled={asset.scheduled_for or '-'}"
@@ -153,9 +168,8 @@ def handle_approve(
     storage: Storage,
     validator: RightsValidator,
     media_processor: MediaProcessor,
-    scheduler: Scheduler,
 ) -> int:
-    del config, validator, media_processor, scheduler
+    del config, validator, media_processor
     asset = require_asset(storage, args.asset_id)
     if not asset.has_allowed_rights:
         raise RuntimeError(
@@ -173,9 +187,8 @@ def handle_reject(
     storage: Storage,
     validator: RightsValidator,
     media_processor: MediaProcessor,
-    scheduler: Scheduler,
 ) -> int:
-    del config, validator, media_processor, scheduler
+    del config, validator, media_processor
     asset = require_asset(storage, args.asset_id)
     storage.reject_asset(asset.asset_id or 0, args.reason)
     storage.log_event("info", "rejected", f"Asset rejected: {asset.title}", asset_id=asset.asset_id)
@@ -189,9 +202,8 @@ def handle_prepare(
     storage: Storage,
     validator: RightsValidator,
     media_processor: MediaProcessor,
-    scheduler: Scheduler,
 ) -> int:
-    del config, validator, scheduler
+    del config, validator
     asset = require_asset(storage, args.asset_id)
     if not asset.has_allowed_rights:
         raise RuntimeError(
@@ -210,9 +222,10 @@ def handle_schedule(
     storage: Storage,
     validator: RightsValidator,
     media_processor: MediaProcessor,
-    scheduler: Scheduler,
 ) -> int:
-    del config, validator, media_processor
+    del validator
+    uploader = build_uploader(config)
+    scheduler = Scheduler(config, storage, media_processor, uploader)
     result = scheduler.auto_schedule(days_ahead=args.days_ahead)
     print(f"Scheduled {result.scheduled_count} assets. Skipped {result.skipped_count}.")
     return 0
@@ -224,14 +237,93 @@ def handle_run_scheduler(
     storage: Storage,
     validator: RightsValidator,
     media_processor: MediaProcessor,
-    scheduler: Scheduler,
 ) -> int:
-    del config, validator, media_processor
+    del validator
+    uploader = build_uploader(config)
+    scheduler = Scheduler(config, storage, media_processor, uploader)
     result = scheduler.run_due_posts(dry_run=args.dry_run)
     print(
         f"Scheduler complete. posted={result.posted_count} "
         f"scheduled={result.scheduled_count} skipped={result.skipped_count}"
     )
+    return 0
+
+
+def handle_generate_kids_story(
+    args: argparse.Namespace,
+    config: dict[str, Any],
+    storage: Storage,
+    validator: RightsValidator,
+    media_processor: MediaProcessor,
+) -> int:
+    del storage, validator, media_processor
+    generator = KidsStoryGenerator(config)
+    output_dir = Path(args.output_dir)
+    story = generator.build_story(
+        title=args.title,
+        theme=args.theme,
+        character_name=args.character,
+    )
+    package_files = generator.write_story_package(
+        story,
+        output_dir=output_dir,
+        scene_dir=args.scene_dir or None,
+        create_placeholder_images=args.create_placeholders,
+    )
+    audio_path = output_dir / "narration.wav"
+    video_path = output_dir / "kids_story_short.mp4"
+    generator.synthesize_narration(
+        story,
+        output_audio_path=audio_path,
+        voice_name=args.voice,
+        rate=args.rate,
+    )
+    generator.render_story_video(
+        story,
+        scene_dir=package_files["scene_dir"],
+        audio_path=audio_path,
+        subtitle_path=package_files["subtitles_srt"],
+        output_video_path=video_path,
+    )
+    metadata = build_story_publish_metadata(story, config, description_override=args.description, hashtags_override=args.hashtags)
+    metadata_path = output_dir / "publish_metadata.json"
+    metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+    if args.auto_post:
+        synthetic_asset = AssetRecord(
+            source_name="local_ai",
+            source_asset_id=f"kids-story-{slugify(story.title)}",
+            source_url=video_path.resolve().as_uri(),
+            title=story.title,
+            creator="AI story generator",
+            license_type="AI-generated owned media",
+            rights_status="ai_owned",
+            proposed_caption=metadata["title"],
+            proposed_hashtags=metadata["hashtags"],
+            source_attribution="",
+            local_path=str(video_path.resolve()),
+            processed_path=str(video_path.resolve()),
+            manual_approved=True,
+        )
+        uploader = build_uploader(config, override_name="multi_platform")
+        upload_result = uploader.upload(
+            UploadRequest(
+                asset=synthetic_asset,
+                video_path=video_path,
+                title=metadata["title"],
+                caption=metadata["title"],
+                description=metadata["description"],
+                hashtags=metadata["hashtags"],
+                attribution="",
+                dry_run=args.dry_run_post,
+                consent_confirmed=True,
+            )
+        )
+        print(f"Upload result: {upload_result.external_post_id or upload_result.error_message}")
+    print(f"Story package: {package_files['story_json']}")
+    print(f"Prompts: {package_files['prompts_txt']}")
+    print(f"Narration: {audio_path}")
+    print(f"Video: {video_path}")
+    print(f"Publish metadata: {metadata_path}")
     return 0
 
 
@@ -266,7 +358,7 @@ def resolve_env_vars(value: Any) -> Any:
 
 
 def absolutize_paths(config: dict[str, Any], base_dir: Path) -> dict[str, Any]:
-    path_sections = ["database", "reports", "paths"]
+    path_sections = ["database", "reports", "paths", "kids_story"]
     for section in path_sections:
         if section not in config:
             continue
@@ -278,6 +370,11 @@ def absolutize_paths(config: dict[str, Any], base_dir: Path) -> dict[str, Any]:
         folder = settings.get("folder")
         if isinstance(folder, str) and folder:
             settings["folder"] = str((base_dir / folder).resolve())
+    youtube_settings = config.get("social_posting", {}).get("youtube", {})
+    for key in ("client_secrets_file", "token_file"):
+        value = youtube_settings.get(key)
+        if isinstance(value, str) and value and not value.startswith("http"):
+            youtube_settings[key] = str((base_dir / value).resolve())
     return config
 
 
@@ -292,6 +389,54 @@ def configure_logging(config: dict[str, Any]) -> None:
             logging.StreamHandler(),
         ],
     )
+
+
+def build_story_publish_metadata(
+    story,
+    config: dict[str, Any],
+    *,
+    description_override: str = "",
+    hashtags_override: str = "",
+) -> dict[str, str]:
+    hashtag_values = hashtags_override.strip() or " ".join(
+        f"#{tag.lstrip('#')}" for tag in config.get("social_posting", {}).get("default_hashtags", [])
+    )
+    summary = f"{story.theme.title()} story for kids. Moral: {story.moral}"
+    description_template = config.get("social_posting", {}).get(
+        "description_template",
+        "{title}\n\n{summary}\n\n{hashtags}",
+    )
+    description = description_override.strip() or description_template.format(
+        title=story.title,
+        summary=summary,
+        hashtags=hashtag_values,
+    )
+    return {
+        "title": story.title,
+        "description": description,
+        "hashtags": hashtag_values,
+    }
+
+
+def slugify(value: str) -> str:
+    cleaned = re.sub(r"[^a-zA-Z0-9]+", "-", value.strip().lower()).strip("-")
+    return cleaned or "story"
+
+
+def excluded_source_names(config: dict[str, Any]) -> set[str]:
+    return {
+        value.lower()
+        for value in config.get("content_filters", {}).get("excluded_sources", [])
+    }
+
+
+def filter_excluded_sources(rows: list[dict[str, Any]], config: dict[str, Any]) -> list[dict[str, Any]]:
+    excluded_sources = excluded_source_names(config)
+    return [
+        row
+        for row in rows
+        if str(row.get("source_name", "")).lower() not in excluded_sources
+    ]
 
 
 if __name__ == "__main__":

@@ -64,10 +64,12 @@ class MediaProcessor:
         output_path = self.processed_dir / f"{asset.asset_id or asset.source_asset_id}_tiktok.mp4"
         ffmpeg_path = self.config["processing"].get("ffmpeg_path", "ffmpeg")
         max_duration = int(self.config["processing"].get("max_duration_seconds", 30))
+        keep_audio = bool(self.config["processing"].get("keep_audio", True))
         filters = [
             "scale=1080:1920:force_original_aspect_ratio=increase",
             "crop=1080:1920",
             "fps=30",
+            "setsar=1",
             "format=yuv420p",
         ]
 
@@ -101,9 +103,27 @@ class MediaProcessor:
                 str(max_duration),
                 "-vf",
                 ",".join(filters),
-                "-an",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "medium",
+                "-crf",
+                "22",
+                "-movflags",
+                "+faststart",
                 str(output_path),
             ]
+            if keep_audio:
+                command[command.index(str(output_path)):command.index(str(output_path))] = [
+                    "-c:a",
+                    "aac",
+                    "-b:a",
+                    "128k",
+                    "-af",
+                    "loudnorm",
+                ]
+            else:
+                command[command.index(str(output_path)):command.index(str(output_path))] = ["-an"]
             self.storage.log_event(
                 "info",
                 "prepare_dry_run",
@@ -124,9 +144,27 @@ class MediaProcessor:
             str(max_duration),
             "-vf",
             ",".join(filters),
-            "-an",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "medium",
+            "-crf",
+            "22",
+            "-movflags",
+            "+faststart",
             str(output_path),
         ]
+        if keep_audio:
+            command[command.index(str(output_path)):command.index(str(output_path))] = [
+                "-c:a",
+                "aac",
+                "-b:a",
+                "128k",
+                "-af",
+                "loudnorm",
+            ]
+        else:
+            command[command.index(str(output_path)):command.index(str(output_path))] = ["-an"]
 
         completed = subprocess.run(
             command,

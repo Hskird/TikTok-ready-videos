@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
-from datetime import datetime, time, timedelta
+from datetime import datetime, time, timedelta, timezone
 from typing import Any
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from media_processor import MediaProcessor
 from rights_validator import ALLOWED_UPLOAD_STATUSES
 from storage import Storage
 from uploader import UploadRequest, Uploader
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -30,7 +34,15 @@ class Scheduler:
         self.storage = storage
         self.media_processor = media_processor
         self.uploader = uploader
-        self.timezone = ZoneInfo(config["schedule"].get("timezone", "UTC"))
+        timezone_name = config["schedule"].get("timezone", "UTC")
+        try:
+            self.timezone = ZoneInfo(timezone_name)
+        except ZoneInfoNotFoundError:
+            LOGGER.warning(
+                "Timezone %s was not available in this Python runtime; falling back to UTC for scheduling.",
+                timezone_name,
+            )
+            self.timezone = timezone.utc
 
     def auto_schedule(self, *, days_ahead: int = 14) -> SchedulerResult:
         result = SchedulerResult()

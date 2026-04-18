@@ -10,16 +10,61 @@ paths:
   processed_dir: ./data/processed
   log_path: ./logs/tool.log
 
+kids_story:
+  output_dir: ./data/kids_story
+  ffmpeg_path: C:/Program Files/GNU Octave/Octave-11.1.0/mingw64/bin/ffmpeg.exe
+  narration:
+    engine: edge_tts
+    voice: en-US-AnaNeural
+    edge_rate: +2%
+    rate: 0
+  animation:
+    fps: 30
+    fade_duration_seconds: 0.35
+    zoom_speed: 0.0018
+    max_zoom: 1.16
+
 captions:
-  template: "{title} | {creator} | Source: {source_name}"
+  template: "{title} | {creator}"
+  call_to_action: "Follow for more"
   default_hashtags:
-    - legalcontent
-    - rightschecked
+    - viralvideo
+    - fyp
+    - englishcontent
+    - shortvideo
     - tiktokready
 
+content_filters:
+  excluded_sources:
+    - wikimedia_commons
+  max_duration_seconds: 60
+  require_english_metadata: true
+  preferred_countries:
+    - US
+    - GB
+    - CA
+    - AU
+    - NZ
+    - IE
+  reject_known_nonpreferred_countries: true
+  required_keywords_any: []
+  viral_keywords:
+    - satisfying
+    - aesthetic
+    - cinematic
+    - street
+    - city
+    - fashion
+    - travel
+    - luxury
+    - fitness
+    - food
+    - nature
+
 processing:
-  ffmpeg_path: ffmpeg
-  max_duration_seconds: 30
+  ffmpeg_path: C:/Program Files/GNU Octave/Octave-11.1.0/mingw64/bin/ffmpeg.exe
+  max_duration_seconds: 60
+  keep_audio: true
   drawtext_font_path: ""
 
 schedule:
@@ -34,18 +79,44 @@ uploader:
   tiktok_client_id: ${TIKTOK_CLIENT_ID}
   tiktok_client_secret: ${TIKTOK_CLIENT_SECRET}
 
+social_posting:
+  default_platforms:
+    - youtube
+    - tiktok
+  description_template: "{title}\n\n{summary}\n\n{hashtags}"
+  default_hashtags:
+    - kidsstory
+    - shorts
+    - tiktokkids
+    - bedtime
+    - aianimation
+  youtube:
+    client_secrets_file: ./secrets/youtube_client_secret.json
+    token_file: ./secrets/youtube_token.json
+    privacy_status: private
+    category_id: "24"
+    self_declared_made_for_kids: true
+    title_suffix: " #shorts"
+  tiktok:
+    access_token: ${TIKTOK_ACCESS_TOKEN}
+    privacy_level: SELF_ONLY
+    disable_comment: false
+    disable_duet: false
+    disable_stitch: false
+    video_cover_timestamp_ms: 1000
+
 sources:
   wikimedia_commons:
-    enabled: true
+    enabled: false
     category: cc
   internet_archive:
-    enabled: true
+    enabled: false
     category: public_domain
   pexels:
-    enabled: false
+    enabled: true
     category: licensed_stock
   pixabay:
-    enabled: false
+    enabled: true
     category: licensed_stock
   local_owned:
     enabled: true

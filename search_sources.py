@@ -248,6 +248,7 @@ def discover_assets(
     per_source_limit: int,
 ) -> list[AssetRecord]:
     results: list[AssetRecord] = []
+    candidate_results: list[tuple[float, AssetRecord]] = []
     for provider in build_sources(config):
         try:
             discovered = provider.search(query=query, limit=per_source_limit)
@@ -261,6 +262,20 @@ def discover_assets(
             continue
 
         for asset in discovered:
+            allowed, filter_reason = passes_content_filters(asset, config)
+            if not allowed:
+                storage.log_event(
+                    "info",
+                    "asset_filtered",
+                    f"Asset skipped by content filters: {filter_reason}",
+                    details={
+                        "source_name": asset.source_name,
+                        "source_asset_id": asset.source_asset_id,
+                        "title": asset.title,
+                        "query": query,
+                    },
+                )
+                continue
             decision = validator.validate(asset)
             asset.rights_status = decision.status
             asset.rights_reason = decision.reason
@@ -269,22 +284,29 @@ def discover_assets(
             asset.source_attribution = decision.attribution_text
             asset.proposed_caption = build_caption(asset, config)
             asset.proposed_hashtags = build_hashtags(asset, config)
-            stored = storage.upsert_asset(asset)
+            candidate_results.append((compute_viral_score(asset, config), asset))
+
+    candidate_results.sort(key=lambda item: item[0], reverse=True)
+    for score, asset in candidate_results:
+        stored = storage.upsert_asset(asset)
+        storage.log_event(
+            "info",
+            "asset_discovered",
+            (
+                f"Stored asset {stored.title} from {stored.source_name} "
+                f"with status {stored.rights_status} and viral score {score:.2f}."
+            ),
+            asset_id=stored.asset_id,
+            details={"query": query, "source_url": stored.source_url, "viral_score": score},
+        )
+        if stored.rights_status in {"unknown", "rejected"}:
             storage.log_event(
                 "info",
-                "asset_discovered",
-                f"Stored asset {stored.title} from {stored.source_name} with status {stored.rights_status}.",
+                "asset_skipped",
+                f"Asset blocked by rights policy: {stored.rights_reason}",
                 asset_id=stored.asset_id,
-                details={"query": query, "source_url": stored.source_url},
             )
-            if stored.rights_status in {"unknown", "rejected"}:
-                storage.log_event(
-                    "info",
-                    "asset_skipped",
-                    f"Asset blocked by rights policy: {stored.rights_reason}",
-                    asset_id=stored.asset_id,
-                )
-            results.append(stored)
+        results.append(stored)
     return results
 
 
@@ -320,6 +342,9 @@ def build_caption(asset: AssetRecord, config: dict[str, Any]) -> str:
         source_name=asset.source_name,
         tags=", ".join(asset.tags[:5]),
     ).strip()
+    cta = config.get("captions", {}).get("call_to_action", "").strip()
+    if cta:
+        rendered = f"{rendered} | {cta}"
     return rendered[:150]
 
 
@@ -340,6 +365,124 @@ def build_hashtags(asset: AssetRecord, config: dict[str, Any]) -> str:
 def normalize_hashtag(value: str) -> str:
     cleaned = re.sub(r"[^a-zA-Z0-9]+", "", value)
     return f"#{cleaned}" if cleaned else ""
+
+
+def passes_content_filters(asset: AssetRecord, config: dict[str, Any]) -> tuple[bool, str]:
+    filters = config.get("content_filters", {})
+    excluded_sources = {value.lower() for value in filters.get("excluded_sources", [])}
+    if asset.source_name.lower() in excluded_sources:
+        return False, f"Source {asset.source_name} is excluded."
+
+    max_duration = filters.get("max_duration_seconds")
+    if max_duration and asset.duration_seconds and asset.duration_seconds > float(max_duration):
+        return False, f"Duration {asset.duration_seconds:.1f}s exceeds the {max_duration}s limit."
+
+    metadata_text = build_metadata_text(asset)
+    if filters.get("require_english_metadata", False):
+        if contains_non_english_signal(metadata_text):
+            return False, "Metadata does not look English-first."
+
+    preferred_countries = [normalize_country_code(value) for value in filters.get("preferred_countries", [])]
+    detected_country = detect_country_hint(metadata_text)
+    reject_nonpreferred = filters.get("reject_known_nonpreferred_countries", False)
+    if preferred_countries and detected_country and detected_country not in preferred_countries and reject_nonpreferred:
+        return False, f"Detected country {detected_country} is outside the preferred market list."
+
+    required_keywords = [value.strip().lower() for value in filters.get("required_keywords_any", []) if value.strip()]
+    if required_keywords:
+        if not any(keyword in metadata_text.lower() for keyword in required_keywords):
+            return False, "Asset did not match any required discovery keywords."
+
+    return True, ""
+
+
+def compute_viral_score(asset: AssetRecord, config: dict[str, Any]) -> float:
+    filters = config.get("content_filters", {})
+    keywords = [value.lower() for value in filters.get("viral_keywords", [])]
+    metadata_text = build_metadata_text(asset).lower()
+    score = 0.0
+
+    if asset.duration_seconds:
+        if asset.duration_seconds <= 20:
+            score += 2.0
+        elif asset.duration_seconds <= 40:
+            score += 1.5
+        elif asset.duration_seconds <= 60:
+            score += 1.0
+
+    score += min(2.5, sum(0.5 for keyword in keywords if keyword and keyword in metadata_text))
+
+    if asset.source_name.lower() in {"pexels", "pixabay", "local_owned", "local_ai"}:
+        score += 1.5
+    elif asset.source_name.lower() == "internet_archive":
+        score += 0.5
+
+    if detect_country_hint(metadata_text) in {
+        normalize_country_code(value) for value in filters.get("preferred_countries", [])
+    }:
+        score += 1.0
+
+    if not contains_non_english_signal(metadata_text):
+        score += 0.75
+
+    return score
+
+
+def build_metadata_text(asset: AssetRecord) -> str:
+    return " ".join(
+        value
+        for value in [
+            asset.title,
+            asset.creator,
+            asset.license_type,
+            " ".join(asset.tags),
+            asset.source_url,
+        ]
+        if value
+    )
+
+
+def contains_non_english_signal(value: str) -> bool:
+    if re.search(r"[\u0400-\u04FF\u0600-\u06FF\u4E00-\u9FFF\u3040-\u30FF\uAC00-\uD7AF]", value):
+        return True
+    lowered = value.lower()
+    return any(
+        token in lowered
+        for token in [
+            " español",
+            " deutsch",
+            " français",
+            " português",
+            " italiano",
+            " русский",
+            " 한국",
+            "日本語",
+            "中文",
+        ]
+    )
+
+
+def detect_country_hint(value: str) -> str:
+    lowered = value.lower()
+    hints = {
+        "US": [" united states", " usa", " u.s.", " american", " america"],
+        "GB": [" united kingdom", " uk", " britain", " british", " england", " london"],
+        "CA": [" canada", " canadian"],
+        "AU": [" australia", " australian"],
+        "NZ": [" new zealand"],
+        "IE": [" ireland", " irish"],
+    }
+    for code, patterns in hints.items():
+        if any(pattern in lowered for pattern in patterns):
+            return code
+    return ""
+
+
+def normalize_country_code(value: str) -> str:
+    cleaned = value.strip().upper()
+    if cleaned == "UK":
+        return "GB"
+    return cleaned
 
 
 def extract_extmetadata_value(ext_meta: dict[str, Any], key: str) -> str:

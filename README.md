@@ -1,6 +1,15 @@
-# Rights-Safe TikTok Video Pipeline
+# Viral-Style Rights-Safe TikTok Video Pipeline
 
 This project discovers, reviews, prepares, and schedules TikTok-ready videos while enforcing a strict rights policy.
+
+It is tuned for viral-style short videos, not scraped creator clips. That means the tool aims for:
+
+- short videos at or under 60 seconds
+- English-first metadata
+- preferred English-speaking markets such as the US and UK
+- vertical TikTok-ready output formatting
+
+It does not and must not scrape viral videos from creator platforms.
 
 It only works with sources that are explicitly allowed for reuse:
 
@@ -15,15 +24,17 @@ It does not scrape random creator content, does not download from TikTok, YouTub
 ## What It Does
 
 - Searches approved legal content sources only
+- Filters out encyclopedia-style sources such as Wikimedia by default
+- Prefers licensed stock, owned media, and AI-owned media for viral-style clips
 - Saves source metadata to SQLite
 - Classifies rights status before review
 - Rejects unknown or disallowed licenses automatically
 - Generates CSV and HTML review dashboards
 - Requires manual approval before scheduling or posting
-- Prepares vertical TikTok-friendly video outputs with optional subtitle overlay
+- Prepares vertical TikTok-friendly MP4 outputs with optional subtitle overlay and audio preservation
 - Enforces daily posting limits
 - Prevents duplicates by source ID and media hash
-- Provides a mock uploader and an official TikTok integration placeholder
+- Provides a mock uploader plus official YouTube/TikTok uploader paths that can be enabled with credentials
 
 ## Project Files
 
@@ -94,17 +105,15 @@ Create local folders if you want to use owned media:
 Configured sources in `config.yaml`:
 
 - `wikimedia_commons`
-  - Intended for public-domain and Creative Commons media
-  - Rights still validated per asset
+  - Disabled by default because you asked not to use Wikipedia/Wikimedia-style video sources
 - `internet_archive`
-  - Queried with a public-domain / commercial-reuse-oriented license filter
-  - Rights still validated per asset
+  - Disabled by default because it is less aligned with short viral-style content
 - `pexels`
   - Licensed stock provider
-  - Disabled by default until you add `PEXELS_API_KEY`
+  - Enabled by default for short stock-style videos once you add `PEXELS_API_KEY`
 - `pixabay`
   - Licensed stock provider
-  - Disabled by default until you add `PIXABAY_API_KEY`
+  - Enabled by default for short stock-style videos once you add `PIXABAY_API_KEY`
 - `local_owned`
   - Your own generated or recorded media folder
 - `local_ai`
@@ -117,7 +126,7 @@ If a source does not have explicit reuse terms, do not add it.
 Search approved sources:
 
 ```bash
-python main.py search --query "city skyline" --limit 5
+python main.py search --query "travel lifestyle aesthetic" --limit 5
 ```
 
 Generate review reports:
@@ -162,6 +171,18 @@ Run posting in dry-run mode:
 python main.py run-scheduler --dry-run
 ```
 
+Generate a kids story short with narration:
+
+```bash
+python main.py generate-kids-story --title "Luna and the Balloon" --theme friendship --character "Luna the little fox" --output-dir .\data\kids_story\luna_balloon --scene-dir .\data\kids_story\luna_balloon\scenes
+```
+
+If you want a first test without final AI art yet:
+
+```bash
+python main.py generate-kids-story --title "Luna and the Balloon" --theme friendship --character "Luna the little fox" --output-dir .\data\kids_story\luna_balloon --create-placeholders
+```
+
 ## Review Dashboard
 
 The HTML and CSV reports include:
@@ -184,12 +205,29 @@ This gives you a lightweight local dashboard for manual review before posting.
 The media processor:
 
 - Downloads media only from configured approved sources
-- Resizes to a TikTok-friendly vertical format
-- Trims to the configured maximum duration
+- Resizes to a TikTok-friendly vertical 9:16 format
+- Trims to the configured maximum duration of 60 seconds
+- Preserves audio by default and normalizes it for short-form output
 - Optionally burns subtitle text from a provided text file
 - Stores processed output paths and hashes
 
 If a license requires attribution, the attribution text is stored on the asset and can be passed to the uploader layer.
+
+## Kids Story Shorts
+
+The project also supports a legal AI-style workflow for short kids videos:
+
+- creates a small story package with title, scenes, prompts, narration text, and subtitles
+- prefers a better English neural voice with `edge-tts` when available, then falls back to Windows speech synthesis
+- assembles a vertical short video with sound, animated scene motion, and fades
+- works with scene images you generate yourself for each scene
+
+Example outputs are written under `data/kids_story/...` including:
+
+- `story.json`
+- `image_prompts.txt`
+- `narration.wav`
+- `kids_story_short.mp4`
 
 ## Scheduler And Posting Rules
 
@@ -205,7 +243,8 @@ The scheduler:
 The uploader layer includes:
 
 - `MockUploader` for testing
-- `TikTokOfficialUploader` placeholder only
+- `YouTubeOfficialUploader` for official YouTube uploads via OAuth
+- `TikTokOfficialUploader` for official TikTok Content Posting API uploads
 
 There is intentionally no browser automation to bypass platform safeguards.
 
@@ -225,6 +264,8 @@ Do not add sources with ambiguous or user-uploaded rights.
 ## Important Policy Constraint
 
 Unverified, copyrighted, or unclear-rights content must not be posted.
+
+Also important: this tool can help you generate viral-style content, but it cannot guarantee virality. It intentionally avoids scraping already-viral creator videos because that would violate the safety and rights rules you set.
 
 This tool is designed to stop that workflow early by:
 
