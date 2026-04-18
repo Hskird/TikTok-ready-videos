@@ -1,40 +1,23 @@
-# Viral-Style Rights-Safe TikTok Video Pipeline
+# AI Kids Shorts Generator
 
-This project discovers, reviews, prepares, and schedules TikTok-ready videos while enforcing a strict rights policy.
+This project can generate short vertical kids-story videos with voice and save them to a local folder so you can post them manually.
 
-It is tuned for viral-style short videos, not scraped creator clips. That means the tool aims for:
+The main workflow now is:
 
-- short videos at or under 60 seconds
-- English-first metadata
-- preferred English-speaking markets such as the US and UK
-- vertical TikTok-ready output formatting
+- generate a new short video each time you run the command
+- save the final MP4 in a folder you choose
+- let you post it manually yourself
 
-It does not and must not scrape viral videos from creator platforms.
-
-It only works with sources that are explicitly allowed for reuse:
-
-- Public-domain libraries
-- Creative Commons sources that allow commercial reuse and derivatives
-- Licensed stock media providers
-- Your own local media folder
-- Your own AI-generated videos folder
-
-It does not scrape random creator content, does not download from TikTok, YouTube, Instagram, or similar platforms unless you explicitly own the content and wire that source in yourself, and it will not post anything with unclear rights.
+It also still includes the earlier legal media pipeline code, but if your goal is kids shorts, the most useful part is the story generator.
 
 ## What It Does
 
-- Searches approved legal content sources only
-- Filters out encyclopedia-style sources such as Wikimedia by default
-- Prefers licensed stock, owned media, and AI-owned media for viral-style clips
-- Saves source metadata to SQLite
-- Classifies rights status before review
-- Rejects unknown or disallowed licenses automatically
-- Generates CSV and HTML review dashboards
-- Requires manual approval before scheduling or posting
-- Prepares vertical TikTok-friendly MP4 outputs with optional subtitle overlay and audio preservation
-- Enforces daily posting limits
-- Prevents duplicates by source ID and media hash
-- Provides a mock uploader plus official YouTube/TikTok uploader paths that can be enabled with credentials
+- Creates a short kids story with 4 scenes
+- Generates narration audio
+- Builds a vertical 9:16 video with motion and fades
+- Saves the result to a local folder
+- Optionally prepares title, description, and hashtags
+- Lets you keep posting manual if that is your preference
 
 ## Project Files
 
@@ -47,175 +30,50 @@ It does not scrape random creator content, does not download from TikTok, YouTub
 - [storage.py](C:\Users\user\Documents\Codex\2026-04-18-are-u-plus-gpt-model\storage.py)
 - [config.yaml](C:\Users\user\Documents\Codex\2026-04-18-are-u-plus-gpt-model\config.yaml)
 
-## Rights Statuses
-
-Each asset is classified into one of these statuses:
-
-- `public_domain`
-- `cc_commercial`
-- `licensed_stock`
-- `owned`
-- `ai_owned`
-- `rejected`
-- `unknown`
-
-Only these statuses are allowed to move toward upload:
-
-- `public_domain`
-- `cc_commercial`
-- `licensed_stock`
-- `owned`
-- `ai_owned`
-
-Anything marked `unknown` or `rejected` is blocked automatically.
-
-## Approval Flow
-
-1. Run a legal-source search.
-2. Generate the review dashboard.
-3. Inspect the source URL, thumbnail, license, attribution, and caption.
-4. Manually approve approved-rights items only.
-5. Schedule approved items.
-6. Run the scheduler in dry-run mode first.
-7. Enable a real uploader only after official platform integration is implemented.
-
-Manual approval is required before any post attempt. Rights verification is required before manual approval is even allowed.
-
 ## Setup
 
 Requirements:
 
-- Python 3.11+ recommended
-- `ffmpeg` installed and available on `PATH` if you want to process video
-- `PyYAML` installed: `pip install pyyaml`
-- Optional API keys for licensed providers:
-  - `PEXELS_API_KEY`
-  - `PIXABAY_API_KEY`
-- Optional future official TikTok credentials:
-  - `TIKTOK_CLIENT_ID`
-  - `TIKTOK_CLIENT_SECRET`
+- Python 3.14 works on this machine
+- `ffmpeg` is already configured in `config.yaml`
+- `PyYAML`, `pillow`, and `edge-tts` are used
 
-Create local folders if you want to use owned media:
+Useful installs:
 
-- `owned_media`
-- `ai_generated_videos`
-
-## Allowed Sources
-
-Configured sources in `config.yaml`:
-
-- `wikimedia_commons`
-  - Disabled by default because you asked not to use Wikipedia/Wikimedia-style video sources
-- `internet_archive`
-  - Disabled by default because it is less aligned with short viral-style content
-- `pexels`
-  - Licensed stock provider
-  - Enabled by default for short stock-style videos once you add `PEXELS_API_KEY`
-- `pixabay`
-  - Licensed stock provider
-  - Enabled by default for short stock-style videos once you add `PIXABAY_API_KEY`
-- `local_owned`
-  - Your own generated or recorded media folder
-- `local_ai`
-  - Your own AI-generated video folder
-
-If a source does not have explicit reuse terms, do not add it.
+```bash
+py -m pip install PyYAML pillow edge-tts
+```
 
 ## How To Run
 
-Search approved sources:
+Generate a local kids short video:
 
 ```bash
-python main.py search --query "travel lifestyle aesthetic" --limit 5
+py main.py generate-kids-story --title "Milo and the Moon Pillow" --theme bedtime --character "Milo the little bunny" --output-dir .\data\kids_story\milo_local --scene-dir .\data\kids_story\milo_local\scenes
 ```
 
-Generate review reports:
+This saves the final video inside your chosen folder:
 
 ```bash
-python main.py review-report
+.\data\kids_story\milo_local\kids_story_short.mp4
 ```
 
-List discovered items:
+If you want a quick test with simple placeholder scenes:
 
 ```bash
-python main.py list-assets
+py main.py generate-kids-story --title "Milo and the Moon Pillow" --theme bedtime --character "Milo the little bunny" --output-dir .\data\kids_story\milo_cards --create-placeholders
 ```
 
-Approve an item:
+Important:
 
-```bash
-python main.py approve --asset-id 12 --notes "Verified rights and brand fit."
-```
-
-Reject an item:
-
-```bash
-python main.py reject --asset-id 12 --reason "License terms unclear."
-```
-
-Prepare one asset with optional overlay text:
-
-```bash
-python main.py prepare --asset-id 12 --subtitle-file .\subtitle.txt
-```
-
-Auto-schedule approved items:
-
-```bash
-python main.py schedule-approved --days-ahead 7
-```
-
-Run posting in dry-run mode:
-
-```bash
-python main.py run-scheduler --dry-run
-```
-
-Generate a kids story short with narration:
-
-```bash
-python main.py generate-kids-story --title "Luna and the Balloon" --theme friendship --character "Luna the little fox" --output-dir .\data\kids_story\luna_balloon --scene-dir .\data\kids_story\luna_balloon\scenes
-```
-
-If you want a first test without final AI art yet:
-
-```bash
-python main.py generate-kids-story --title "Luna and the Balloon" --theme friendship --character "Luna the little fox" --output-dir .\data\kids_story\luna_balloon --create-placeholders
-```
-
-## Review Dashboard
-
-The HTML and CSV reports include:
-
-- Preview thumbnail when available
-- Source link
-- Creator
-- License type and license URL
-- Rights status
-- Proposed caption
-- Proposed hashtags
-- Attribution text
-- Approval status
-- Schedule status
-
-This gives you a lightweight local dashboard for manual review before posting.
-
-## Content Preparation
-
-The media processor:
-
-- Downloads media only from configured approved sources
-- Resizes to a TikTok-friendly vertical 9:16 format
-- Trims to the configured maximum duration of 60 seconds
-- Preserves audio by default and normalizes it for short-form output
-- Optionally burns subtitle text from a provided text file
-- Stores processed output paths and hashes
-
-If a license requires attribution, the attribution text is stored on the asset and can be passed to the uploader layer.
+- `--create-placeholders` makes card-style scenes on purpose
+- if you want a better-looking video, use real generated scene images in the `scenes` folder
+- the best current example is:
+  [kids_story_short.mp4](C:\Users\user\Documents\Codex\2026-04-18-are-u-plus-gpt-model\data\kids_story\milo_moon_ai\kids_story_short.mp4)
 
 ## Kids Story Shorts
 
-The project also supports a legal AI-style workflow for short kids videos:
+The story generator creates:
 
 - creates a small story package with title, scenes, prompts, narration text, and subtitles
 - prefers a better English neural voice with `edge-tts` when available, then falls back to Windows speech synthesis
@@ -229,47 +87,43 @@ Example outputs are written under `data/kids_story/...` including:
 - `narration.wav`
 - `kids_story_short.mp4`
 
-## Scheduler And Posting Rules
+## How To Make It Less Like Cards
 
-The scheduler:
+If the video looks like cards, the reason is almost always that you used placeholder scene images.
 
-- Reads approved items from SQLite
-- Uses configured posting times and a daily posting limit
-- Refuses to post assets without approved rights status
-- Refuses to post assets without manual approval
-- Supports `--dry-run`
-- Skips duplicates by source ID and media hash
+To make it feel more animated:
 
-The uploader layer includes:
+1. Do not use `--create-placeholders`
+2. Put real AI-generated story scenes in:
+   - `scene_01.png`
+   - `scene_02.png`
+   - `scene_03.png`
+   - `scene_04.png`
+3. Run the generator again using `--scene-dir`
 
-- `MockUploader` for testing
-- `YouTubeOfficialUploader` for official YouTube uploads via OAuth
-- `TikTokOfficialUploader` for official TikTok Content Posting API uploads
+Current animation in the code:
 
-There is intentionally no browser automation to bypass platform safeguards.
+- zoom in / zoom out motion
+- pan motion
+- fades
+- color boost
+- voice narration
 
-## Adding Licensed Providers
+What it is not yet:
 
-To add another licensed stock provider safely:
+- full character-by-character cartoon animation
+- lip sync
+- moving arms, faces, or bodies inside one image
 
-1. Add a new source entry in `config.yaml`.
-2. Implement a provider in `search_sources.py`.
-3. Return explicit license metadata for each asset.
-4. Mark the provider category as `licensed_stock`.
-5. Keep the provider disabled until credentials and contract terms are confirmed.
-6. Verify that downloading and reuse are allowed by the provider agreement.
+If you want even more movement later, the next upgrade would be:
 
-Do not add sources with ambiguous or user-uploaded rights.
+- parallax layers
+- multiple images per scene
+- animated overlays like sparkles, stars, smoke, or magic dust
+- character cutout movement across the frame
 
-## Important Policy Constraint
+## Manual Posting
 
-Unverified, copyrighted, or unclear-rights content must not be posted.
+If you only want local files and want to post yourself manually, do not use `--auto-post`.
 
-Also important: this tool can help you generate viral-style content, but it cannot guarantee virality. It intentionally avoids scraping already-viral creator videos because that would violate the safety and rights rules you set.
-
-This tool is designed to stop that workflow early by:
-
-- auto-rejecting incompatible license terms
-- blocking `unknown` rights statuses
-- requiring manual approval
-- keeping official posting integration separate from discovery and review
+Just run the generator and your video will be saved locally. Then upload it yourself to TikTok or YouTube Shorts.
